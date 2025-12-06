@@ -1,0 +1,94 @@
+---
+config:
+  # 基础配置 (会被启动器直接传递)
+  output_dir: "D:\\kontext-z\\output"  # 输出目录D:\\output
+  save_name: "meiyan"          # 保存模型的前缀
+  train_data_dir: "D:\\kontext-z\\dateset\\001" # 训练数据目录
+  seed: 42                   # 训练种子
+  enable_bucketing: true     # 是否启用存储桶功能
+  
+  # 流程配置
+  process:
+    - 
+      # LoRA网络配置
+      network:
+        rank: 32                    # LoRA的秩, 此值会被脚本自动用于lora_alpha
+
+      # 数据集配置
+      datasets:
+        - resolution: [ 512 ]       # 训练分辨率 (脚本默认512, 注意: 列表形式目前只取第一个值)
+      
+      # 训练参数
+      train:
+        pretrained_model_name_or_path: "D:\\kontext-z\\flux_models\\kontext"  # 预训练模型路径(注意使用完整路径)
+        
+        # 批处理和性能参数 - 显存优化相关
+        train_batch_size: 1                 # 每个GPU的批处理大小，显存充足时可增大到2-4
+        gradient_accumulation_steps: 1      # 梯度累积步数，显存不足时可增大，显存充足时保持为1
+        num_train_epochs: 10                 # 训练轮数
+        
+        # 显存优化参数 - 可根据显存情况调整
+        gradient_checkpointing: true        # 梯度检查点, 节省显存但略微降低速度 (显存充足可设为false)
+        blocks_to_swap: 0                  # 模块交换数量, 0为禁用 (脚本建议10-20)
+        mixed_precision: "bf16"             # 混合精度训练, 可选: "fp16"、"bf16"、"fp8"
+        allow_tf32: true                    # 在Ampere及以上GPU上启用TF32可提高性能
+        use_8bit_adam: true                 # 使用8位精度Adam优化器节省显存 (仅当optimizer为AdamW时有效)
+        
+        # 冻结层设置
+        freeze_transformer_layers: ""       # 冻结特定层, 格式为用空格分隔的层号, 如 "5 7 10"
+        
+        # 优化器和学习率设置
+        optimizer: "adamw"                  # 优化器类型, 可选: "AdamW"、"prodigy"
+        learning_rate: 1e-4                 # 学习率
+        lr_scheduler: "cosine_with_restarts"            # 学习率调度器, 可选: "linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"
+        lr_warmup_steps: 0                  # 学习率预热步数
+        cosine_restarts: 1                  # 余弦学习率重启次数 (仅当lr_scheduler为cosine_with_restarts时有效)
+        
+        # 正则化和数据处理
+        reg_ratio: 0.7                      # 正则化比例 (注意: 当前脚本中未使用)
+        reg_timestep: 700                   # 正则化时间步 (注意: 当前脚本中未使用)
+        mask_dropout: 0                     # 掩码丢弃率
+        caption_dropout: 0.1                # 标题丢弃率 (训练中有10%概率不使用标题)
+        
+        # 保存和验证设置
+        validation_ratio: 0.1               # 验证集比例
+        save_model_epochs: 1                # 每隔多少epochs保存一次模型
+        save_model_steps: -1                # 每隔多少步保存一次模型, -1表示不按步数保存
+        validation_epochs: 1                # 每隔多少epochs验证一次
+        skip_epoch: 0                       # 从哪个epoch开始保存和验证
+        skip_step: 0                        # 从哪个step开始保存和验证
+        
+        # 数据集设置
+        repeats: 20                         # 数据集重复次数
+        recreate_cache: false               # 是否重新创建缓存
+        
+        # 高级时间步设置
+        max_time_steps: 0                   # 最大时间步, 0表示使用默认值 (注意: 当前脚本中未使用)
+        weighting_scheme: "logit_normal"    # 权重方案, 可选: "sigma_sqrt", "logit_normal", "mode", "cosmap", "logit_snr"
+        
+        # 其他高级参数
+        noise_offset: 0.01                  # 噪声偏移量
+        snr_gamma: 5.0                      # SNR权重gamma值 (注意: 当前脚本中未使用)
+      
+      # 模型配置
+      model:
+        # 需要训练的模块列表, 会被转换为 --lora_layers 参数
+        target_modules:
+          - "attn.to_k"
+          - "attn.to_q"
+          - "attn.to_v"
+          - "attn.to_out.0"
+          - "attn.add_k_proj"
+          - "attn.add_q_proj"
+          - "attn.add_v_proj"
+          - "attn.to_add_out"
+          - "ff.net.0.proj"
+          - "ff.net.2"
+          - "ff_context.net.0.proj"
+          - "ff_context.net.2"
+
+# 显存使用建议 (这部分是注释，予以保留):
+# - 低显存设备(8GB)：保持默认设置, 可能需要增加gradient_accumulation_steps到4-8
+# - 中等显存设备(12-16GB)：blocks_to_swap=5-10, train_batch_size=1-2
+# - 高显存设备(24GB+)：blocks_to_swap=0, gradient_checkpointing=false, train_batch_size=2-4
+# - 超高显存设备(40GB+)：同上, 且可设置quantize=false, low_vram=false, rank=32-64 
